@@ -22,6 +22,75 @@ from numpy.linalg import svd, inv
 from scipy.linalg import sqrtm
 from sklearn.decomposition import PCA
 
+# Set some parameters for the console
+desired_width = 320
+pd.set_option('display.width', desired_width)
+np.set_printoptions(linewidth=desired_width)
+
+# TEST DATA
+'''X = pd.DataFrame(
+    data=[
+        [1, 6, 7, 2, 5, 7, 6, 3, 6, 7],
+        [5, 3, 2, 4, 4, 4, 2, 4, 4, 3],
+        [6, 1, 1, 5, 2, 1, 1, 7, 1, 1],
+        [7, 1, 2, 7, 2, 1, 2, 2, 2, 2],
+        [2, 5, 4, 3, 5, 6, 5, 2, 6, 6],
+        [3, 4, 4, 3, 5, 4, 5, 1, 7, 5]
+    ],
+
+    columns=['E1 fruity', 'E1 woody', 'E1 coffee',
+             'E2 red fruit', 'E2 roasted', 'E2 vanillin', 'E2 woody',
+             'E3 fruity', 'E3 butter', 'E3 woody'],
+
+    index=['Wine {}'.format(i + 1) for i in range(6)]
+)
+X['Oak type'] = [1, 2, 2, 2, 1, 1]
+
+X1 = X.loc[:, 'E1 fruity':'E1 coffee']
+X2 = X.loc[:, 'E2 red fruit':'E2 woody']
+X3 = X.loc[:, 'E3 fruity':'E3 woody']
+
+attribute_matrices = {
+    'Expert1': center_and_normalize(X1),
+    'Expert2': center_and_normalize(X2),
+    'Expert3': center_and_normalize(X3)
+}'''
+
+
+####################
+# Data preparation #
+####################
+
+def center_and_normalize(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Center each column in a data frame (column minus column mean).
+
+    :param df: data frame of which columns are to be centered and normalized
+    :return: resulting data frame
+    """
+
+    # These are the attributes, if all went well
+    columns = df.columns
+
+    # Center all attribute columns
+    for col in columns:
+        # Make sure they're floats
+        df[col] = df[col].astype(float)
+
+        # Center by subtracting column mean from each column
+        df[col] = df[col] - df[col].mean()
+
+    # Normalize columns so sum of squared elements is 1
+    for col in columns:
+        # Calculate sum of squares
+        sum_of_squares = np.sum(df[col] ** 2)
+
+        # Divide by square root of sum of squares
+        df[col] = df[col] / np.sqrt(sum_of_squares)
+
+    # Return that shit whassup
+    return df
+
 
 #################
 # Decomposition #
@@ -35,9 +104,11 @@ def separate_pca(attribute_matrix: pd.DataFrame) -> (pd.DataFrame, PCA):
     already by centered and normalized!), calculate pca, and normalize
     data frame using largest singular value.
 
-    Returns:
-        - Normalized data frame
-        - PCA
+    :param attribute_matrix (pd.DataFrame): data frame containing attribute scores (columns)
+            for different observations (rows)
+    :return
+        - Normalized data frame (pd.DataFrame)
+        - Principal Component Analysis object (PCA)
     """
 
     # Apply pca to attribute matrix
@@ -58,11 +129,10 @@ def global_pca(attribute_matrix: pd.DataFrame, scree_plot=False) -> (pd.DataFram
     Takes a data frame, and applies singular value decomposition to
     calculate global factor scores
 
-    :param: attribute_matrix (pd.DataFrame): data frame containing attribute scores,
+    :param attribute_matrix (pd.DataFrame): data frame containing attribute scores,
             resulting from previous pca.
-    :param: scree_plot (bool): determines whether to show a Scree plot
-
-    :return:
+    :param scree_plot (bool): determines whether to show a Scree plot
+    :return
         - Global factor score matrix
         - Eigenvalues
     """
@@ -92,7 +162,6 @@ def global_pca(attribute_matrix: pd.DataFrame, scree_plot=False) -> (pd.DataFram
 
     # M to the power -1/2
     Mnew = inv(sqrtm(M))
-    print(Mnew)
 
     # Global factor scores
     F = matmul(matmul(Mnew, U), diag(Delta))
@@ -109,7 +178,7 @@ def project_onto_global(attribute_matrix: pd.DataFrame, global_factor_scores: np
     :param attribute_matrix: individual observer data
     :param global_factor_scores: global factor score matrix
     :param U, Delta, Vh: results from singular value decomposition
-    :return: individual factor score matrix
+    :return individual factor score matrix
     """
 
     # Mass matrix
@@ -122,7 +191,6 @@ def project_onto_global(attribute_matrix: pd.DataFrame, global_factor_scores: np
 
     # Scale single expert with all experts of global solution by multiplying by T
     T = len(attribute_matrices)
-    T = 6
 
     # Attribute matrix
     Z = attribute_matrix.values
@@ -145,7 +213,7 @@ def plot_projection_global(global_factor_scores: np.ndarray, components=(1, 2)):
 
     :param global_factor_scores: matrix with global factor scores, resulting from final step PCA.
     :param components: which component loadings to plot.
-    :return: void
+    :return void
     """
 
     # Gather coordinates
@@ -191,8 +259,7 @@ def plot_projection_individual(individual_factor_scores: dict, global_factor_sco
 
     # Plot with seaborn
     sns.set(style="white", rc={'figure.figsize': (5, 5)})
-    ax = sns.scatterplot(x, y, color='black')
-    sns.despine(left=True, bottom=True, trim=True, offset=10)
+    ax = sns.scatterplot(x, y, color='black', marker='o', s=100)
 
     ax.set(xlabel='Principal component ' + str(components[0]),
            ylabel='Principal component ' + str(components[1]))
@@ -212,11 +279,18 @@ def plot_projection_individual(individual_factor_scores: dict, global_factor_sco
     colors = sns.color_palette("pastel", n_colors=len(which_pp))
 
     for idx, pp in enumerate(which_pp):
+
+        # Add points
         scores = individual_factor_scores[pp]
         x_ind = scores[:, components[0] - 1]
         y_ind = scores[:, components[1] - 1]
-
         ax = sns.scatterplot(x_ind, y_ind, color=colors[idx])
+
+        # Add lines
+        for x0, y0, x1, y1 in zip(x, y, x_ind, y_ind):
+            plt.plot([x0, x1], [y0, y1], color=colors[idx])
+
+    sns.despine(left=True, bottom=True, trim=True, offset=10)
 
     plt.show()
 
@@ -277,7 +351,8 @@ if __name__ in ['__main__', 'builtins']:
 
     for pp in attribute_matrices:
         # Project each attribute matrix onto global structure
-        projections[pp] = project_onto_global(attribute_matrix=attribute_matrices[pp], global_factor_scores=F, U=U,
+        projections[pp] = project_onto_global(attribute_matrix=normalized_attribute_matrices[pp],
+                                              global_factor_scores=F, U=U,
                                               Delta=Delta, Vh=Vh)
 
     # Plot content
