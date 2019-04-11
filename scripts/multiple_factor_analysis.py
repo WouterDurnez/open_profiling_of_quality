@@ -248,21 +248,26 @@ def plot_projection_individual(individual_factor_scores: dict, global_factor_sco
     of the principal components, as determined by the final step PCA. In addition,
     visualize how individual ratings stack up with the global structure.
 
-    :param individual_factor_scores:
+    :param individual_factor_scores: matrices with individual factor scores (normalized by first eigenvalue).
     :param global_factor_scores: matrix with global factor scores, resulting from final step PCA.
     :param components: which component loadings to plot.
+    :param which_pp: which participants (observers; groups of variables) to include in the plot.
     :return: void
     """
-    # Gather coordinates
+
+    # Gather coordinates of indicated components
     x = global_factor_scores[:, components[0] - 1]
     y = global_factor_scores[:, components[1] - 1]
 
     # Plot with seaborn
     sns.set(style="white", rc={'figure.figsize': (5, 5)})
+
     ax = sns.scatterplot(x, y, color='black', marker='o', s=100)
 
     ax.set(xlabel='Principal component ' + str(components[0]),
            ylabel='Principal component ' + str(components[1]))
+
+    plt.title("Partial analyses", fontweight='bold')
 
     # Add the labels
     dodge = .3
@@ -290,34 +295,97 @@ def plot_projection_individual(individual_factor_scores: dict, global_factor_sco
         for x0, y0, x1, y1 in zip(x, y, x_ind, y_ind):
             plt.plot([x0, x1], [y0, y1], color=colors[idx])
 
-    sns.despine(left=True, bottom=True, trim=True, offset=10)
+    sns.despine(trim=True, offset=10)
 
     plt.show()
 
 
-'''def item_map(cluster1: object,
-             cluster2: object,
-             pca: PCA,
-             style="whitegrid"):
-    """Plot attributes on principal component axes."""
+def plot_variable_loadings(attribute_matrices: dict, projections: dict, global_factor_scores: np.ndarray,
+                           components=(1, 2), which_pp=None):
+    """
+    Plot loadings of original variables on principal components, as determined by the correlation.
 
-    # Get the points we need
-    points = pd.DataFrame(pca.components_[[cluster1, cluster2]])
-    points.columns = df_attributes.columns
-    points = points.transpose()
-    points.reset_index(inplace=True)
+    :param individual_factor_scores: matrices with individual factor scores (normalized by first eigenvalue).
+    :param global_factor_scores: matrix with global factor scores, resulting from final step PCA.
+    :param components: which component loadings to plot.
+    :param which_pp: which participants (observers; groups of variables) to include in the plot.
+    :return: void
+    """
 
-    # Plot the points
-    sns.set(style=style, rc={'figure.figsize': (12, 12)})
-    ax = sns.scatterplot(x=0, y=1, data=points)
-    ax.set(xlabel='Principal component ' + str(cluster1 + 1),
-           ylabel='Principal component ' + str(cluster2 + 1))
+    # If left unspecified, plot all observer data
+    if which_pp is None:
+        which_pp = attribute_matrices.keys()
 
-    # Add the labels
-    for i, p in points.iterrows():
-        ax.text(x=p[0], y=p[1], s=p['name'], fontsize=6)
+    # Color palette
+    colors = sns.color_palette("pastel", n_colors=len(which_pp))
 
-    plt.show()'''
+    # Gather PC coordinates for global
+    x = global_factor_scores[:, components[0] - 1]
+    y = global_factor_scores[:, components[1] - 1]
+
+    # Calculate correlations, loop over observers
+    for idx, pp in enumerate(which_pp):
+
+        x_coordinates, y_coordinates = [], []
+        variable_names = list(attribute_matrices[pp].columns)
+
+        # Gather PC coordinates for individual
+        first_pc = projections[pp][:, components[0] - 1]
+        second_pc = projections[pp][:, components[1] - 1]
+
+        # Correlation between global and individual PCs
+        PC00 = np.corrcoef(x=x, y=first_pc)[0, 1]
+        PC01 = np.corrcoef(x=y, y=first_pc)[0, 1]
+        PC10 = np.corrcoef(x=x, y=second_pc)[0, 1]
+        PC11 = np.corrcoef(x=y, y=second_pc)[0, 1]
+
+        # Loop over variables
+        for var in attribute_matrices[pp]:
+            # Original variables
+            x_ind = attribute_matrices[pp][var].values
+            y_ind = attribute_matrices[pp][var].values
+
+            # Correlation between PCs an old variables
+            rx = np.corrcoef(x=x, y=x_ind)[0, 1]
+            ry = np.corrcoef(x=y, y=y_ind)[0, 1]
+
+            x_coordinates.append(rx)
+            y_coordinates.append(ry)
+
+        # Plot with seaborn
+        dodge = .03
+        sns.set(style="white", rc={'figure.figsize': (5, 5)})
+
+        # Prepare canvas
+        plt.arrow(x=-1, y=0, dx=2, dy=0, color='grey', head_width=.05, zorder=-1, length_includes_head=True)
+        plt.arrow(x=0, y=-1, dx=0, dy=2, color='grey', head_width=.05, zorder=-1, length_includes_head=True)
+        circle = plt.Circle((0, 0), 1, color='lightgrey', fill=False)
+
+        ax = sns.scatterplot(x_coordinates, y_coordinates, color=colors[idx])
+
+        plt.plot(PC00, PC01, 'o', markerfacecolor='none', markeredgecolor=colors[idx], color=colors[idx], ms=10,
+                 zorder=2)
+        plt.plot(PC10, PC11, 'o', markerfacecolor='none', markeredgecolor=colors[idx], color=colors[idx], ms=10,
+                 zorder=2)
+        ax.text(x=PC00 + 2 * dodge, y=PC01 + 2 * dodge, s="PC" + str(components[0]), fontsize=10)
+        ax.text(x=PC10 + 2 * dodge, y=PC11 + 2 * dodge, s="PC" + str(components[1]), fontsize=10)
+
+        for i in range(len(x_coordinates)):
+            ax.text(x=x_coordinates[i] + dodge, y=y_coordinates[i] + dodge, s=variable_names[i], fontsize=10,
+                    color='darkgrey')
+        ax.set(xlim=(-1.2, 1.2), ylim=(-1.2, 1.2))
+        ax.set(xlabel='Principal component ' + str(components[0]),
+               ylabel='Principal component ' + str(components[1]))
+        ax.add_artist(circle)
+
+        plt.title("Correlation plot - " + pp, fontweight='bold')
+
+        sns.despine(left=True, bottom=True)
+
+        plt.show()
+
+    return ax
+
 
 if __name__ in ['__main__', 'builtins']:
 
@@ -325,6 +393,35 @@ if __name__ in ['__main__', 'builtins']:
     df_general = pd.read_csv("../data/df_general.csv", sep=";", decimal=",")
     attribute_matrices = dict(np.load("../data/attributes.npy").item())
 
+    # TEST
+    '''X = pd.DataFrame(
+        data=[
+            [1, 6, 7, 2, 5, 7, 6, 3, 6, 7],
+            [5, 3, 2, 4, 4, 4, 2, 4, 4, 3],
+            [6, 1, 1, 5, 2, 1, 1, 7, 1, 1],
+            [7, 1, 2, 7, 2, 1, 2, 2, 2, 2],
+            [2, 5, 4, 3, 5, 6, 5, 2, 6, 6],
+            [3, 4, 4, 3, 5, 4, 5, 1, 7, 5]
+        ],
+
+        columns=['E1 fruity', 'E1 woody', 'E1 coffee',
+                 'E2 red fruit', 'E2 roasted', 'E2 vanillin', 'E2 woody',
+                 'E3 fruity', 'E3 butter', 'E3 woody'],
+
+        index=['Wine {}'.format(i + 1) for i in range(6)]
+    )
+    X['Oak type'] = [1, 2, 2, 2, 1, 1]
+
+    X1 = X.loc[:, 'E1 fruity':'E1 coffee']
+    X2 = X.loc[:, 'E2 red fruit':'E2 woody']
+    X3 = X.loc[:, 'E3 fruity':'E3 woody']
+
+    attribute_matrices = {
+        'Expert1': center_and_normalize(X1),
+        'Expert2': center_and_normalize(X2),
+        'Expert3': center_and_normalize(X3)
+    }'''
+    # /TEST
     # Set indices
     df_general.set_index(['pp'], inplace=True)
 
@@ -341,7 +438,7 @@ if __name__ in ['__main__', 'builtins']:
     df_attributes = pd.concat(list(normalized_attribute_matrices.values()), axis=1).astype(float)
 
     # Perform second step of MFA
-    F, eigenvals, U, Delta, Vh = global_pca(attribute_matrix=df_attributes, scree_plot=True)
+    F, eigenvals, U, Delta, Vh = global_pca(attribute_matrix=df_attributes, scree_plot=False)
 
     # Ratio explained variance
     ratio_explained_variance = eigenvals / np.sum(eigenvals)
@@ -363,9 +460,6 @@ if __name__ in ['__main__', 'builtins']:
     plot_projection_individual(individual_factor_scores=projections, global_factor_scores=F, components=(1, 2),
                                which_pp=None)
 
-    '''pca = PCA()
-    pca.fit(X=df_attributes)
-
-    # Check out first two
-    sns.set(style="white")
-    item_map(cluster1=0, cluster2=1, pca=pca)'''
+    # Plot correlations with original variables
+    ax = plot_variable_loadings(attribute_matrices=normalized_attribute_matrices, projections=projections,
+                                global_factor_scores=F, which_pp=None)
