@@ -133,8 +133,9 @@ def global_pca(attribute_matrix: pd.DataFrame, scree_plot=False) -> (pd.DataFram
             resulting from previous pca.
     :param scree_plot (bool): determines whether to show a Scree plot
     :return
-        - Global factor score matrix
+        - Global factor score matrix: each row represents an observation and each column a component.
         - Eigenvalues
+        - U, Delta, Vh: singular value decomposition of global matrix.
     """
 
     # Singular value decomposition
@@ -202,6 +203,36 @@ def project_onto_global(attribute_matrix: pd.DataFrame, global_factor_scores: np
     return F
 
 
+def get_partial_inertias(Vh: np.ndarray, eigenvals: np.ndarray, attribute_matrices: dict):
+    labels = []
+
+    V = Vh.transpose()
+
+    J = [len(attribute_matrices[pp].columns) for pp in attribute_matrices]
+
+    n_obs = len(attribute_matrices[list(attribute_matrices.keys())[0]])
+    n_groups = len(J)
+
+    partial_inertias = np.ndarray(shape=(n_groups, n_obs))
+
+    for i in range(n_obs):
+        start = 0
+        stop = 0
+        lam = eigenvals[i]
+        for j in range(n_groups):
+            stop += J[j]
+            q = np.sum(V[start:stop, i] ** 2)
+            partial_inertias[j, i] = lam * q
+            start = stop
+
+    return partial_inertias
+
+
+###
+#
+###
+
+
 #################
 # Visualization #
 #################
@@ -220,25 +251,33 @@ def plot_projection_global(global_factor_scores: np.ndarray, components=(1, 2)):
     x = global_factor_scores[:, components[0] - 1]
     y = global_factor_scores[:, components[1] - 1]
 
+    # Set limits for axes
+    xmax, ymax = np.max(np.abs(x)) * 1.1, np.max(np.abs(y)) * 1.1
+    xmin, ymin = -xmax, -ymax
+    scale_factor = np.max([xmax, ymax]) / 50
+    print(scale_factor)
+
     # Plot with seaborn
     colors = sns.color_palette("pastel", n_colors=6)
     sns.set(style="white", rc={'figure.figsize': (5, 5)})
+    # ax = sns.scatterplot(x, y, hue=content, legend=None)
     ax = sns.scatterplot(x, y, color='white')
-    sns.despine(left=True, bottom=True, trim=True, offset=10)
+    sns.despine(ax=ax, left=True, bottom=True)
 
     ax.set(xlabel='Principal component ' + str(components[0]),
-           ylabel='Principal component ' + str(components[1]))
+           ylabel='Principal component ' + str(components[1]),
+           xlim=(xmin, xmax), ylim=(ymin, ymax))
 
     # Add the labels
-    dodge = .3
-    content = ["plank", "crow", "canyon", "jurassic", "spacewalk", "limit"]
+    dodge = scale_factor
 
     for idx, coord in enumerate(zip(x, y)):
         ax.text(x=coord[0] + dodge, y=coord[1] + dodge, s=content[idx].capitalize(), fontsize=12)
-
-        plt.arrow(x=0, y=0, dx=coord[0], dy=coord[1], color=colors[idx], width=.08)
+        plt.arrow(x=0, y=0, dx=coord[0], dy=coord[1], color=colors[idx], head_width=scale_factor)
 
     plt.show()
+
+    return ax
 
 
 def plot_projection_individual(individual_factor_scores: dict, global_factor_scores: np.ndarray, components=(1, 2),
@@ -289,7 +328,7 @@ def plot_projection_individual(individual_factor_scores: dict, global_factor_sco
         scores = individual_factor_scores[pp]
         x_ind = scores[:, components[0] - 1]
         y_ind = scores[:, components[1] - 1]
-        ax = sns.scatterplot(x_ind, y_ind, color=colors[idx])
+        sns.scatterplot(x_ind, y_ind, color=colors[idx])
 
         # Add lines
         for x0, y0, x1, y1 in zip(x, y, x_ind, y_ind):
@@ -349,8 +388,12 @@ def plot_variable_loadings(attribute_matrices: dict, projections: dict, global_f
             rx = np.corrcoef(x=x, y=x_ind)[0, 1]
             ry = np.corrcoef(x=y, y=y_ind)[0, 1]
 
-            x_coordinates.append(rx)
-            y_coordinates.append(ry)
+            # Only print correlations > sqrt(.5)
+            plot_yn = True if (rx ** 2 + ry ** 2) ** (1 / 2) > .5 ** (1 / 2) else False
+
+            if plot_yn:
+                x_coordinates.append(rx)
+                y_coordinates.append(ry)
 
         # Plot with seaborn
         dodge = .03
@@ -387,43 +430,45 @@ def plot_variable_loadings(attribute_matrices: dict, projections: dict, global_f
     return ax
 
 
+def plot_partial_inertias(partial_inertias: np.ndarray, components=(1, 2)):
+    """
+    Plot partial intertia of observers.
+
+    :param partial_inertias: matrix with partial intertias of each observer. matrices with individual factor scores (normalized by first eigenvalue).
+    :param components: which component loadings to plot.
+    :return: void
+    """
+
+    sns.set_style('white')
+
+    x = partial_inertias[:, components[0] - 1]
+    y = partial_inertias[:, components[1] - 1]
+
+    ax = sns.scatterplot(x=x, y=y)
+
+    ax.set(xlabel='Principal component ' + str(components[0]),
+           ylabel='Principal component ' + str(components[1]))
+    plt.title("Partial intertia plot - Components " + str(components), fontweight='bold')
+
+    dodge = .005
+
+    for pp in range(x.shape[0]):
+        ax.text(x=x[pp] + dodge, y=y[pp] + dodge, s=str(pp + 1), fontsize=10)
+
+    sns.despine()
+
+    plt.show()
+
+
 if __name__ in ['__main__', 'builtins']:
 
     # Load the processed data files
     df_general = pd.read_csv("../data/df_general.csv", sep=";", decimal=",")
     attribute_matrices = dict(np.load("../data/attributes.npy").item())
 
-    # TEST
-    '''X = pd.DataFrame(
-        data=[
-            [1, 6, 7, 2, 5, 7, 6, 3, 6, 7],
-            [5, 3, 2, 4, 4, 4, 2, 4, 4, 3],
-            [6, 1, 1, 5, 2, 1, 1, 7, 1, 1],
-            [7, 1, 2, 7, 2, 1, 2, 2, 2, 2],
-            [2, 5, 4, 3, 5, 6, 5, 2, 6, 6],
-            [3, 4, 4, 3, 5, 4, 5, 1, 7, 5]
-        ],
-
-        columns=['E1 fruity', 'E1 woody', 'E1 coffee',
-                 'E2 red fruit', 'E2 roasted', 'E2 vanillin', 'E2 woody',
-                 'E3 fruity', 'E3 butter', 'E3 woody'],
-
-        index=['Wine {}'.format(i + 1) for i in range(6)]
-    )
-    X['Oak type'] = [1, 2, 2, 2, 1, 1]
-
-    X1 = X.loc[:, 'E1 fruity':'E1 coffee']
-    X2 = X.loc[:, 'E2 red fruit':'E2 woody']
-    X3 = X.loc[:, 'E3 fruity':'E3 woody']
-
-    attribute_matrices = {
-        'Expert1': center_and_normalize(X1),
-        'Expert2': center_and_normalize(X2),
-        'Expert3': center_and_normalize(X3)
-    }'''
-    # /TEST
     # Set indices
-    df_general.set_index(['pp'], inplace=True)
+    content = ['plank', 'crow', 'canyon', 'jurassic', 'spacewalk', 'limit']
+    df_general = df_general.set_index(['pp'], inplace=False)[content]
 
     # Normalize all attribute matrices on first singular value
     normalized_attribute_matrices = {}
@@ -438,7 +483,7 @@ if __name__ in ['__main__', 'builtins']:
     df_attributes = pd.concat(list(normalized_attribute_matrices.values()), axis=1).astype(float)
 
     # Perform second step of MFA
-    F, eigenvals, U, Delta, Vh = global_pca(attribute_matrix=df_attributes, scree_plot=False)
+    F, eigenvals, U, Delta, Vh = global_pca(attribute_matrix=df_attributes, scree_plot=True)
 
     # Ratio explained variance
     ratio_explained_variance = eigenvals / np.sum(eigenvals)
@@ -463,3 +508,36 @@ if __name__ in ['__main__', 'builtins']:
     # Plot correlations with original variables
     ax = plot_variable_loadings(attribute_matrices=normalized_attribute_matrices, projections=projections,
                                 global_factor_scores=F, which_pp=None)
+
+    # Plot partial inertias - how do observers stack up against the total?
+    partial_inertias = get_partial_inertias(Vh=Vh, eigenvals=eigenvals, attribute_matrices=attribute_matrices)
+    plot_partial_inertias(partial_inertias=partial_inertias)
+
+    # TEMP
+    hedonic_scores = df_general.transpose()
+    for pp in projections:
+        temp = pd.DataFrame(data=projections[pp], index=content,
+                            columns=['PC' + str(i + 1) for i in range(6)]).reset_index()
+        temp['pp'] = int(pp)
+        temp['hedonic'] = hedonic_scores.reset_index()[int(pp)]
+        print(temp)
+        projections[pp] = temp
+    data_long = pd.concat(projections.values(), axis=0)
+    data_long.to_csv("for_R.csv", sep=',', decimal='.')
+
+    # PrefMFA: combining external matrix (E) and hedonic matrix (H)
+    E, _ = separate_pca(
+        center_and_normalize(pd.DataFrame(data=F, index=content, columns=['PC' + str(i + 1) for i in range(6)])))
+    H, _ = separate_pca(attribute_matrix=center_and_normalize(df_general.transpose()))
+    E_and_H = pd.concat([E, H], axis=1)
+    F2, eigenvals2, U2, Delta2, Vh2 = global_pca(attribute_matrix=E_and_H, scree_plot=True)
+
+    result = pd.DataFrame(data=F2, index=content, columns=['PC' + str(i + 1) for i in range(6)])
+
+    # Plot content
+    plot_projection_global(global_factor_scores=result.values, components=(1, 2))
+
+    plot_variable_loadings(attribute_matrices={'Hedonic': H},
+                           projections={'Hedonic': project_onto_global(H, F2, U2, Delta2, Vh2)},
+                           global_factor_scores=F2,
+                           components=(2, 3))
